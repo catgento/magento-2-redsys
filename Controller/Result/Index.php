@@ -95,6 +95,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @param InvoiceService $invoiceService
      * @param InvoiceSender $invoiceSender
      * @param ResultFactory $resultRedirectFactory
+     * @param TransactionFactory $transactionFactory
      * @param ScopeConfigInterface $scopeConfig
      * @param OrderRepositoryInterface $orderRepository
      * @param OrderSender $orderSender
