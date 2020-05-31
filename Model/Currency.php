@@ -33,4 +33,18 @@ class Currency
         return ConfigInterface::REDSYS_DEFAULT_CURRENCY;
     }
 
+    /**
+     * @param OrderInterface $order
+     * @return string
+     */
+    public function getCurrencyFromCode($currencyCode)
+    {
+        $currencyCode = array_search($currencyCode, $this->currencies);
+        if(!$currencyCode) {
+            $currencyCode = array_search(ConfigInterface::REDSYS_DEFAULT_CURRENCY, $this->currencies);
+        }
+
+        return $currencyCode;
+    }
+
 }

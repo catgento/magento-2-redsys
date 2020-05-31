@@ -26,6 +26,7 @@ use Catgento\Redsys\Helper\Helper;
 use Catgento\Redsys\Logger\Logger;
 use Catgento\Redsys\Model\RedsysApi;
 use Catgento\Redsys\Model\ConfigInterface;
+use Catgento\Redsys\Model\Currency;
 
 /**
  * Class Index
@@ -85,6 +86,26 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     protected $transactionFactory;
 
     /**
+     * @var string
+     */
+    protected $authorizationCode;
+
+    /**
+     * @var Currency
+     */
+    protected $currency;
+
+    /**
+     * @var Currency
+     */
+    protected $currencyList;
+
+    /**
+     * @var string
+     */
+    protected $amount;
+
+    /**
      * @var RedsysApi
      */
     protected $api = null;
@@ -99,6 +120,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @param ScopeConfigInterface $scopeConfig
      * @param OrderRepositoryInterface $orderRepository
      * @param OrderSender $orderSender
+     * @param Currency $currencyList
      * @param Helper $helper
      * @param Logger $logger
      */
@@ -111,6 +133,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         ScopeConfigInterface $scopeConfig,
         OrderRepositoryInterface $orderRepository,
         OrderSender $orderSender,
+        Currency $currencyList,
         Helper $helper,
         Logger $logger
     ) {
@@ -122,6 +145,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $this->scopeConfig = $scopeConfig;
         $this->orderRepository = $orderRepository;
         $this->orderSender = $orderSender;
+        $this->currencyList = $currencyList;
         $this->helper = $helper;
         $this->logger = $logger;
     }
@@ -149,18 +173,17 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     {
         return true;
     }
-    
+
     protected function process()
     {
         try {
-
             $this->validate();
             $api = $this->getApi();
             $responseCode = intval($api->getParameter('Ds_Response'));
 
             if ($responseCode <= 99) {
                 $this->processOrder();
-                $this->processInvoice();
+                $this->_registerPaymentCapture();
             } else {
                 $errorMessage = $this->helper->messageResponse($responseCode)." ".__("(response:%1)",$responseCode);
                 $this->helper->cancelOrder($this->getOrder(), $errorMessage);
@@ -169,7 +192,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         } catch (\Exception $e) {
             $this->logger->critical($e);
         }
-
     }
 
     /**
@@ -186,11 +208,11 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $order->setState($state);
         $order->setStatus($status);
 
-        $transaction = $payment->addTransaction(PaymentTransaction::TYPE_CAPTURE);
         $api = $this->getApi();
         $responseCode = intval($api->getParameter('Ds_Response'));
-        $authorisationCode = $api->getParameter('Ds_AuthorisationCode');
-        $message = $payment->prependMessage(__('TPV payment accepted. (response: %1, authorization: %1)', $responseCode, $authorisationCode));
+        $this->authorisationCode = $api->getParameter('Ds_AuthorisationCode');
+        $this->currency = $this->currencyList->getCurrencyFromCode($api->getParameter('Ds_Currency'));
+        $message = $payment->prependMessage(__('TPV payment accepted. (response: %1, authorization: %1)', $responseCode, $this->authorisationCode));
         $payment->addTransactionCommentsToOrder($transaction, $message);
 
         $this->orderRepository->save($order);
@@ -205,52 +227,30 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     }
 
     /**
-     * Creates the invoice and sends the email
+     * Process completed payment (either full or partial)
      *
-     * @throws LocalizedException
+     * @param bool $skipFraudDetection
+     * @return void
      */
-    private function processInvoice()
+    protected function _registerPaymentCapture()
     {
-        if ($this->scopeConfig->getValue(ConfigInterface::XML_PATH_AUTOINVOICE, ScopeInterface::SCOPE_STORE)) {
-            $order = $this->getOrder();
+        $order = $this->getOrder();
 
-            if (!$order->canInvoice()) {
-                throw new LocalizedException(__('The order does not allow an invoice to be created.'));
-            }
+        $parentTransactionId = $this->authorisationCode;
+        $payment = $order->getPayment();
+        $payment->addTransaction(PaymentTransaction::TYPE_CAPTURE);
+        $payment->setTransactionId($parentTransactionId);
+        $payment->setCurrencyCode($this->currency);
 
-            $invoice = $this->invoiceService->prepareInvoice($order);
+        $payment->setPreparedMessage('Order Payment Confirmed from Redsys');
+        $payment->setParentTransactionId($parentTransactionId);
+        $payment->setShouldCloseParentTransaction('Completed');
+        $payment->setIsTransactionClosed(0);
 
-            if (!$invoice) {
-                throw new LocalizedException(__('We can\'t save the invoice right now.'));
-            }
-
-            if (!$invoice->getTotalQty()) {
-                throw new LocalizedException(__('You can\'t create an invoice without products.'));
-            }
-
-            $invoice->setRequestedCaptureCase(Invoice::CAPTURE_ONLINE);
-
-            $invoice->register();
-
-            $invoice->getOrder()->setCustomerNoteNotify(false);
-            $invoice->getOrder()->setIsInProcess(true);
-
-            $transactionSave = $this->transactionFactory
-                ->create()
-                ->addObject($invoice)
-                ->addObject($invoice->getOrder()
-                );
-            $transactionSave->save();
-
-            // send invoice email
-            if ($this->scopeConfig->getValue(ConfigInterface::XML_PATH_SENDINVOICE, ScopeInterface::SCOPE_STORE)) {
-                try {
-                    $this->invoiceSender->send($invoice);
-                } catch (\Exception $e) {
-                    $this->logger->critical($e);
-                }
-            }
-        }
+        $payment->registerCaptureNotification(
+            $this->amount/100
+        );
+        $order->save();
     }
 
     /**
@@ -314,13 +314,13 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
             throw new LocalizedException(__('Errors in POST data'));
         }
 
-        $amount = $api->getParameter('Ds_Amount');
+        $this->amount = $api->getParameter('Ds_Amount');
         $orderId = $api->getParameter('Ds_Order');
         $order = $this->getOrder($orderId);
 
         $transaction_amount = number_format($order->getBaseGrandTotal(), 2, '', '');
         $amountOrder = (float)$transaction_amount;
-        if ($amountOrder != $amount) {
+        if ($amountOrder != $this->amount) {
             throw new LocalizedException(__("Amount is diferent"));
         }
 
