@@ -30,6 +30,7 @@ interface ConfigInterface
     const XML_PATH_AUTOINVOICE              = 'payment/redsys/autoinvoice';
     const XML_PATH_SENDINVOICE              = 'payment/redsys/sendinvoice';
     const XML_PATH_RECOVERY_CART            = 'payment/redsys/recovery_cart';
+    const XML_PATH_CANCEL_PENDING_ORDERS    = 'payment/redsys/cancel_pending_orders';
     const XML_PATH_DEBUG                    = 'payment/redsys/debug';
     const XML_PATH_ALLOWSPECIFIC            = 'payment/redsys/allowspecific';
     const XML_PATH_SPECIFICCOUNTRY          = 'payment/redsys/specificcountry';
