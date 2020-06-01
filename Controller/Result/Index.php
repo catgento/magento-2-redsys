@@ -91,6 +91,11 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     protected $authorizationCode;
 
     /**
+     * @var string
+     */
+    protected $responseCode;
+
+    /**
      * @var Currency
      */
     protected $currency;
@@ -200,7 +205,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     private function processOrder()
     {
         $order = $this->getOrder();
-        $payment = $order->getPayment();
 
         $state = Order::STATE_PROCESSING;
         $status = $this->helper->getOrderStatusByState($order, $state);
@@ -209,11 +213,11 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $order->setStatus($status);
 
         $api = $this->getApi();
-        $responseCode = intval($api->getParameter('Ds_Response'));
-        $this->authorisationCode = $api->getParameter('Ds_AuthorisationCode');
+        $this->responseCode = intval($api->getParameter('Ds_Response'));
+        $this->authorizationCode = $api->getParameter('Ds_AuthorisationCode');
         $this->currency = $this->currencyList->getCurrencyFromCode($api->getParameter('Ds_Currency'));
-        $message = $payment->prependMessage(__('TPV payment accepted. (response: %1, authorization: %1)', $responseCode, $this->authorisationCode));
-        $payment->addTransactionCommentsToOrder($transaction, $message);
+        $message = __('PSP payment accepted. (response: %1, authorization: %1)', $this->responseCode, $this->authorizationCode);
+        $order->addStatusHistoryComment($message);
 
         $this->orderRepository->save($order);
 
@@ -236,13 +240,10 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
     {
         $order = $this->getOrder();
 
-        $parentTransactionId = $this->authorisationCode;
+        $parentTransactionId = $this->authorizationCode;
         $payment = $order->getPayment();
-        $payment->addTransaction(PaymentTransaction::TYPE_CAPTURE);
         $payment->setTransactionId($parentTransactionId);
         $payment->setCurrencyCode($this->currency);
-
-        $payment->setPreparedMessage('Order Payment Confirmed from Redsys');
         $payment->setParentTransactionId($parentTransactionId);
         $payment->setShouldCloseParentTransaction('Completed');
         $payment->setIsTransactionClosed(0);
@@ -250,7 +251,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $payment->registerCaptureNotification(
             $this->amount/100
         );
-        $order->save();
     }
 
     /**
