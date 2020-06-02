@@ -4,6 +4,7 @@ namespace Catgento\Redsys\Cron;
 
 use Catgento\Redsys\Logger\Logger;
 use Catgento\Redsys\Model\ConfigInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Api\FilterBuilder;
 use Magento\Framework\Api\Search\FilterGroup;
 use Magento\Framework\Api\SearchCriteriaBuilder;
@@ -15,6 +16,10 @@ use Magento\Sales\Model\Order;
  */
 class CancelOrderPending
 {
+    /**
+     * @var ScopeConfigInterface
+     */
+    protected $scopeConfig;
 
     /**
      * @var OrderRepositoryInterface
@@ -42,18 +47,13 @@ class CancelOrderPending
     protected $logger;
 
     /**
-     * @var ConfigInterface
-     */
-    protected $scopeConfig;
-
-    /**
      * CancelOrderPending constructor.
      *
      * @param OrderRepositoryInterface $orderRepository
      * @param SearchCriteriaBuilder $searchCriteriaBuilder
      * @param FilterBuilder $filterBuilder
      * @param FilterGroup $filterGroup
-     * @param ConfigInterface $scopeConfig
+     * @param ScopeConfigInterface $scopeConfig
      * @param Logger $logger
      */
     public function __construct(
@@ -61,7 +61,7 @@ class CancelOrderPending
         SearchCriteriaBuilder $searchCriteriaBuilder,
         FilterBuilder $filterBuilder,
         FilterGroup $filterGroup,
-        ConfigInterface $scopeConfig,
+        ScopeConfigInterface $scopeConfig,
         Logger $logger
     )
     {
@@ -78,7 +78,8 @@ class CancelOrderPending
      */
     public function execute()
     {
-        $enabled = $this->scopeConfig->getValue(ConfigInterface::XML_PATH_CANCEL_PENDING_ORDERS, ScopeInterface::SCOPE_STORE);
+        $enabled = $this->scopeConfig->getValue(ConfigInterface::XML_PATH_CANCEL_PENDING_ORDERS);
+        $methodCode = 'redsys';
 
         if ($enabled) {
             $today = date("Y-m-d h:i:s");
@@ -87,6 +88,7 @@ class CancelOrderPending
 
             $filterGroupDate = $this->filterGroup;
             $filterGroupStatus = clone($filterGroupDate);
+            $filterGroupMethod = clone($filterGroupDate);
 
             $this->logger->info('Retrieving orders to cancel');
 
@@ -101,31 +103,28 @@ class CancelOrderPending
                 ->setValue('pending')
                 ->create();
 
+            $filterMethod = $this->filterBuilder->setField('extension_attribute_payment_method.method')
+                ->setConditionType('eq')
+                ->setValue($methodCode)
+                ->create();
+
             $filterGroupDate->setFilters([$filterDate]);
             $filterGroupStatus->setFilters([$filterStatus]);
+            $filterGroupMethod->setFilters([$filterMethod]);
 
             $searchCriteria = $this->searchCriteriaBuilder->setFilterGroups(
-                [$filterGroupDate, $filterGroupStatus]
+                [$filterGroupDate, $filterGroupStatus, $filterGroupMethod]
             );
             $searchResults = $this->orderRepository->getList($searchCriteria->create());
 
             /** @var Order $order */
             foreach ($searchResults->getItems() as $order) {
-                $payment = $order->getPayment();
-                $method = $payment->getMethodInstance();
-                $methodCode = $method->getCode();
-
-                $this->logger->info('Checking order: ' . $order->getIncrementId());
-                $this->logger->info('Code: ' . $methodCode);
-
-                if ($methodCode == 'redsys') {
-                    $this->logger->info('Canceling order: ' . $order->getIncrementId());
-                    $comment = __('Order cancelled because it was idle for more than 10 minutes');
-                    $order->cancel();
-                    $order->addStatusHistoryComment($comment)
-                        ->setIsCustomerNotified(false);
-                    $order->save();
-                }
+                $this->logger->info('Canceling order (idle for more than 10 minutes): ' . $order->getIncrementId());
+                $comment = __('Order cancelled because it was idle for more than 10 minutes');
+                $order->cancel();
+                $order->addStatusHistoryComment($comment)
+                    ->setIsCustomerNotified(false);
+                $order->save();
             }
         }
     }
