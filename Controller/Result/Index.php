@@ -251,6 +251,17 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $payment->registerCaptureNotification(
             $this->amount/100
         );
+
+        // notify customer
+        $invoice = $payment->getCreatedInvoice();
+        if ($invoice && !$order->getEmailSent() && ConfigInterface::XML_PATH_SENDINVOICE) {
+            $this->orderSender->send($order);
+            $order->addStatusHistoryComment(
+                __('You notified customer about invoice #%1.', $invoice->getIncrementId())
+            )
+                ->setIsCustomerNotified(true)
+                ->save();
+        }
     }
 
     /**
