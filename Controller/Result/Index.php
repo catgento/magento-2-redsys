@@ -20,7 +20,6 @@ use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 use Magento\Framework\DB\Transaction;
-use Magento\Sales\Model\Order\Payment\Transaction as PaymentTransaction;
 use Magento\Framework\DB\TransactionFactory;
 use Catgento\Redsys\Helper\Helper;
 use Catgento\Redsys\Logger\Logger;
