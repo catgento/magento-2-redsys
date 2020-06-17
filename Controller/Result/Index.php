@@ -244,22 +244,18 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $payment->setTransactionId($parentTransactionId);
         $payment->setCurrencyCode($this->currency);
         $payment->setParentTransactionId($parentTransactionId);
-        $payment->setShouldCloseParentTransaction('Completed');
-        $payment->setIsTransactionClosed(0);
+        $payment->setShouldCloseParentTransaction(true);
+        $payment->setIsTransactionClosed(1);
 
         $payment->registerCaptureNotification(
-            $this->amount/100
+            $this->amount/100,
+            true
         );
 
         // notify customer
         $invoice = $payment->getCreatedInvoice();
-        if ($invoice && !$order->getEmailSent() && ConfigInterface::XML_PATH_SENDINVOICE) {
-            $this->orderSender->send($order);
-            $order->addStatusHistoryComment(
-                __('You notified customer about invoice #%1.', $invoice->getIncrementId())
-            )
-                ->setIsCustomerNotified(true)
-                ->save();
+        if ($invoice && ConfigInterface::XML_PATH_SENDINVOICE) {
+            $this->invoiceSender->send($invoice, true);
         }
     }
 
@@ -333,7 +329,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         if ($amountOrder != $this->amount) {
             throw new LocalizedException(__("Amount is diferent"));
         }
-
     }
 
 }
