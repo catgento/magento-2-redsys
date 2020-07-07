@@ -9,6 +9,7 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\App\Request\InvalidRequestException;
 use Magento\Framework\App\Action\Context;
 use Magento\Sales\Model\Service\InvoiceService;
+use Magento\Sales\Model\Order\Invoice;
 use Magento\Sales\Model\Order\Email\Sender\InvoiceSender;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Exception\LocalizedException;
@@ -18,13 +19,13 @@ use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
+use Magento\Framework\DB\Transaction;
 use Magento\Framework\DB\TransactionFactory;
 use Catgento\Redsys\Helper\Helper;
 use Catgento\Redsys\Logger\Logger;
 use Catgento\Redsys\Model\RedsysApi;
 use Catgento\Redsys\Model\ConfigInterface;
 use Catgento\Redsys\Model\Currency;
-use Magento\Sales\Model\OrderFactory;
 
 /**
  * Class Index
@@ -57,11 +58,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @var OrderRepositoryInterface
      */
     protected $orderRepository;
-
-    /**
-     * @var OrderFactory
-     */
-    protected $orderFactory;
 
     /**
      * @var OrderSender
@@ -127,21 +123,19 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @param TransactionFactory $transactionFactory
      * @param ScopeConfigInterface $scopeConfig
      * @param OrderRepositoryInterface $orderRepository
-     * @param OrderFactory $orderFactory
      * @param OrderSender $orderSender
      * @param Currency $currencyList
      * @param Helper $helper
      * @param Logger $logger
      */
-	public function __construct(
-		Context $context,
+    public function __construct(
+        Context $context,
         InvoiceService $invoiceService,
         InvoiceSender $invoiceSender,
         ResultFactory $resultRedirectFactory,
         TransactionFactory $transactionFactory,
         ScopeConfigInterface $scopeConfig,
         OrderRepositoryInterface $orderRepository,
-        OrderFactory $orderFactory,
         OrderSender $orderSender,
         Currency $currencyList,
         Helper $helper,
@@ -154,7 +148,6 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $this->transactionFactory = $transactionFactory;
         $this->scopeConfig = $scopeConfig;
         $this->orderRepository = $orderRepository;
-        $this->orderFactory = $orderFactory;
         $this->orderSender = $orderSender;
         $this->currencyList = $currencyList;
         $this->helper = $helper;
@@ -258,7 +251,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
             $this->amount/100,
             true
         );
-        
+
         // notify customer
         $invoice = $payment->getCreatedInvoice();
         if ($invoice && ConfigInterface::XML_PATH_SENDINVOICE) {
@@ -278,7 +271,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         if (is_null($this->order)) {
             $api = $this->getApi();
             $orderId = $api->getParameter('Ds_Order');
-            $this->order = $this->orderFactory->create()->loadByIncrementId($orderId);
+            $this->order = $this->helper->getOrderByIncrementId($orderId);
         }
         return $this->order;
     }
@@ -339,6 +332,5 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         if ($amountOrder != $this->amount) {
             throw new LocalizedException(__("Amount is diferent"));
         }
-
     }
 }
