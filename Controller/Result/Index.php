@@ -9,7 +9,6 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\App\Request\InvalidRequestException;
 use Magento\Framework\App\Action\Context;
 use Magento\Sales\Model\Service\InvoiceService;
-use Magento\Sales\Model\Order\Invoice;
 use Magento\Sales\Model\Order\Email\Sender\InvoiceSender;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Exception\LocalizedException;
@@ -19,13 +18,13 @@ use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
-use Magento\Framework\DB\Transaction;
 use Magento\Framework\DB\TransactionFactory;
 use Catgento\Redsys\Helper\Helper;
 use Catgento\Redsys\Logger\Logger;
 use Catgento\Redsys\Model\RedsysApi;
 use Catgento\Redsys\Model\ConfigInterface;
 use Catgento\Redsys\Model\Currency;
+use Magento\Sales\Model\OrderFactory;
 
 /**
  * Class Index
@@ -58,6 +57,11 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @var OrderRepositoryInterface
      */
     protected $orderRepository;
+
+    /**
+     * @var OrderFactory
+     */
+    protected $orderFactory;
 
     /**
      * @var OrderSender
@@ -123,6 +127,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
      * @param TransactionFactory $transactionFactory
      * @param ScopeConfigInterface $scopeConfig
      * @param OrderRepositoryInterface $orderRepository
+     * @param OrderFactory $orderFactory
      * @param OrderSender $orderSender
      * @param Currency $currencyList
      * @param Helper $helper
@@ -136,6 +141,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         TransactionFactory $transactionFactory,
         ScopeConfigInterface $scopeConfig,
         OrderRepositoryInterface $orderRepository,
+        OrderFactory $orderFactory,
         OrderSender $orderSender,
         Currency $currencyList,
         Helper $helper,
@@ -148,6 +154,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $this->transactionFactory = $transactionFactory;
         $this->scopeConfig = $scopeConfig;
         $this->orderRepository = $orderRepository;
+        $this->orderFactory = $orderFactory;
         $this->orderSender = $orderSender;
         $this->currencyList = $currencyList;
         $this->helper = $helper;
@@ -244,22 +251,21 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         $payment->setTransactionId($parentTransactionId);
         $payment->setCurrencyCode($this->currency);
         $payment->setParentTransactionId($parentTransactionId);
-        $payment->setShouldCloseParentTransaction('Completed');
-        $payment->setIsTransactionClosed(0);
+        $payment->setShouldCloseParentTransaction(true);
+        $payment->setIsTransactionClosed(1);
 
         $payment->registerCaptureNotification(
-            $this->amount/100
+            $this->amount/100,
+            true
         );
-
+        
         // notify customer
         $invoice = $payment->getCreatedInvoice();
-        if ($invoice && !$order->getEmailSent() && ConfigInterface::XML_PATH_SENDINVOICE) {
-            $this->orderSender->send($order);
-            $order->addStatusHistoryComment(
-                __('You notified customer about invoice #%1.', $invoice->getIncrementId())
-            )
-                ->setIsCustomerNotified(true)
+        if ($invoice && ConfigInterface::XML_PATH_SENDINVOICE) {
+            $invoice->setTransactionId($parentTransactionId)
                 ->save();
+
+            $this->invoiceSender->send($invoice, true);
         }
     }
 
@@ -272,7 +278,7 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         if (is_null($this->order)) {
             $api = $this->getApi();
             $orderId = $api->getParameter('Ds_Order');
-            $this->order = $this->helper->getOrderByIncrementId($orderId);
+            $this->order = $this->orderFactory->create()->loadByIncrementId($orderId);
         }
         return $this->order;
     }
@@ -335,5 +341,4 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
         }
 
     }
-
 }
