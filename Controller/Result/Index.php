@@ -187,7 +187,9 @@ class Index extends Action implements CsrfAwareActionInterface, HttpPostActionIn
 
             if ($responseCode <= 99) {
                 $this->processOrder();
-                $this->_registerPaymentCapture();
+                if (ConfigInterface::XML_PATH_AUTOINVOICE) {
+                    $this->_registerPaymentCapture();
+                }
             } else {
                 $errorMessage = $this->helper->messageResponse($responseCode)." ".__("(response:%1)",$responseCode);
                 $this->helper->cancelOrder($this->getOrder(), $errorMessage);

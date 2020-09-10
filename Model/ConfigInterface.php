@@ -7,7 +7,6 @@ namespace Catgento\Redsys\Model;
  */
 interface ConfigInterface 
 {
-
 	const REDSYS_DEVELOPMENT_ENVIRONMENT    = 0;
 	const REDSYS_PRODUCTION_ENVIRONMENT     = 1;
     const REDSYS_REDIRECT_URI               = 'redsys/redirect/';
@@ -35,5 +34,4 @@ interface ConfigInterface
     const XML_PATH_ALLOWSPECIFIC            = 'payment/redsys/allowspecific';
     const XML_PATH_SPECIFICCOUNTRY          = 'payment/redsys/specificcountry';
     const XML_PATH_SORT_ORDER               = 'payment/redsys/sort_order';
-
 }
