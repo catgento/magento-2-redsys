@@ -4,12 +4,14 @@ namespace Catgento\Redsys\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Checkout\Model\Session as CheckoutSession;
+use Magento\Customer\Model\SessionFactory;
 use Magento\Sales\Model\OrderFactory;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Framework\UrlInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Catgento\Redsys\Logger\Logger;
 use Catgento\Redsys\Helper\Helper;
+use Catgento\Redsys\Helper\CountryIsoHelper;
 
 /**
  * Class RedsysFactory
@@ -49,6 +51,15 @@ class RedsysFactory
     protected $order = null;
 
     /**
+     * @var CountryIsoHelper
+     */
+    protected $countryIsoHelper;
+    /**
+     * @var SessionFactory
+     */
+    private $customerSession;
+
+    /**
      * RedsysFactory constructor.
      * @param ScopeConfigInterface $scopeConfig
      * @param CheckoutSession $checkoutSession
@@ -56,6 +67,8 @@ class RedsysFactory
      * @param Helper $helper
      * @param UrlInterface $url
      * @param Logger $logger
+     * @param CountryIsoHelper $countryIsoHelper
+     * @param SessionFactory $customerSession
      */
     public function __construct(
         ScopeConfigInterface $scopeConfig,
@@ -63,7 +76,9 @@ class RedsysFactory
         OrderFactory $orderFactory,
         Helper $helper,
         UrlInterface $url,
-        Logger $logger
+        Logger $logger,
+        CountryIsoHelper $countryIsoHelper,
+        SessionFactory $customerSession
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->checkoutSession = $checkoutSession;
@@ -71,6 +86,8 @@ class RedsysFactory
         $this->helper = $helper;
         $this->url = $url;
         $this->logger = $logger;
+        $this->countryIsoHelper = $countryIsoHelper;
+        $this->customerSession = $customerSession;
     }
 
     /**
@@ -162,8 +179,54 @@ class RedsysFactory
         $redsysObj->setParameter("Ds_Merchant_MerchantName", $commerce_name);
         $redsysObj->setParameter("Ds_Merchant_PayMethods", ConfigInterface::REDSYS_PAYMETHODS);
         $redsysObj->setParameter("Ds_Merchant_Module", "catgento_redsys");
+        $redsysObj->setParameter("DS_MERCHANT_EMV3DS", $this->generateMerchantEMV3DSData());
 
         return $redsysObj;
     }
 
+    public function generateMerchantEMV3DSData()
+    {
+        $order = $this->getOrder();
+
+        $billingAddress = $order->getBillingAddress();
+        $shippingAddress = $order->getShippingAddress();
+
+        $emv3dsData['cardholderName'] = $order->getData('customer_firstname') . ' ' . $order->getData('customer_lastname');
+        $emv3dsData['Email'] = $order->getData('customer_email');
+
+        // Shipping
+        $shippingStreet = $shippingAddress->getStreet();
+        $emv3dsData['shipAddrLine1'] = $shippingStreet[0];
+        if (isset($shippingStreet[1])) {
+            $emv3dsData['shipAddrLine2'] = $shippingStreet[1];
+        }
+        $emv3dsData['shipAddrCity'] = $shippingAddress->getCity();
+        $emv3dsData['shipAddrPostCode'] = $shippingAddress->getPostcode();
+        $emv3dsData['shipAddrCountry'] = $this->countryIsoHelper->getCountryNumericCode($billingAddress->getCountryId());
+
+        // Billing
+        $billingStreet = $billingAddress->getStreet();
+        $emv3dsData['billAddrLine1'] = $billingStreet[0];
+        if (isset($billingStreet[1])) {
+            $emv3dsData['billAddrLine2'] = $billingStreet[1];
+        }
+        $emv3dsData['billAddrCity'] = $billingAddress->getCity();
+        $emv3dsData['billAddrPostCode'] = $billingAddress->getPostcode();
+        $emv3dsData['billAddrCountry'] = $this->countryIsoHelper->getCountryNumericCode($billingAddress->getCountryId());
+
+        $emv3dsData['threeDSRequestorAuthenticationInfo'] = '01';
+        if ($this->isLoggedIn()) {
+            $emv3dsData['threeDSRequestorAuthenticationInfo'] = '02';
+        }
+
+        return $emv3dsData;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function isLoggedIn()
+    {
+        return $this->customerSession->create()->isLoggedIn();
+    }
 }
